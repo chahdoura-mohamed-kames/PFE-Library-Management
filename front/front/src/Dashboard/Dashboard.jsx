@@ -5,21 +5,47 @@ const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState(null);
 
+  const fetchStats = async () => {
+    try {
+      const user = JSON.parse(localStorage.getItem('user')); // ← Ajouté
+      const token = user?.token; // ← Ajouté
+
+      const res = await axios.get('http://localhost:5000/api/dashboard/stats', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      setStats(res.data);
+    } catch (err) {
+      console.error('Erreur dashboard :', err);
+      setError('Impossible de charger le dashboard.');
+    }
+  };
+
+  const markTaskAsDone = async (taskId) => {
+    try {
+      const user = JSON.parse(localStorage.getItem('user')); // ← Ajouté
+      const token = user?.token; // ← Ajouté
+
+      await axios.patch(`http://localhost:5000/api/tasks/${taskId}/complete`, {}, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      setStats((prevStats) => ({
+        ...prevStats,
+        tasksToday: prevStats.tasksToday.filter(task => task.id !== taskId),
+        dailyPlan: {
+          ...prevStats.dailyPlan,
+          completed: prevStats.dailyPlan.completed + 1
+        }
+      }));
+    } catch (err) {
+      console.error('Erreur lors de la complétion de la tâche :', err);
+    }
+  };
+
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const res = await axios.get('http://localhost:5000/api/dashboard/stats', {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
-        setStats(res.data);
-      } catch (err) {
-        console.error('Erreur dashboard :', err);
-        setError('Impossible de charger le dashboard.');
-      }
-    };
     fetchStats();
   }, []);
 
@@ -37,7 +63,7 @@ const Dashboard = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2 bg-green-100 p-4 rounded-xl">
                 <p className="text-xl font-bold">Bonjour 👋</p>
-                <button className="mt-4 px-3 py-2 bg-white rounded shadow hover:text-green-600">Start tracking</button>
+                <button className="mt-4 px-3 py-2 bg-white rounded shadow hover:text-green-600 border border-gray-300">Start tracking</button>
               </div>
               <div className="bg-yellow-100 p-4 rounded-xl text-gray-800">
                 <div className="text-2xl font-bold">{stats.tasksFinished}</div>
@@ -57,23 +83,34 @@ const Dashboard = () => {
           <div>
             <h2 className="text-2xl font-bold mb-4">Your tasks today</h2>
             <div className="space-y-4">
-              {stats.tasksToday.map((task, index) => (
-                <div key={index} className="p-4 bg-white border rounded-xl text-gray-800 space-y-2">
-                  <div className="flex justify-between text-xs text-gray-400">
-                    <span>{task.project}</span>
-                    <span>{task.duration}</span>
-                  </div>
-                  <p className="font-bold">{task.title}</p>
-                  {task.note && (
-                    <p className="text-sm text-gray-600">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" className="inline mr-1" viewBox="0 0 16 16">
-                        <path d="M8 4a.905.905 0 0 0-.9.995l.35 3.507a.552.552 0 0 0 1.1 0l.35-3.507A.905.905 0 0 0 8 4zm.002 6a1 1 0 1 0 0 2 1 1 0 0 0 0-2z" />
-                      </svg>{task.note}
-                    </p>
-                  )}
-                </div>
-              ))}
-              {stats.tasksToday.length === 0 && <p className="text-sm text-gray-500">Aucune tâche pour aujourd’hui.</p>}
+              {stats.tasksToday.length > 0 ? (
+                stats.tasksToday
+                  .filter(task => !task.completed)
+                  .map((task, index) => (
+                    <div key={index} className="p-4 bg-white border rounded-xl text-gray-800 space-y-2">
+                      <div className="flex justify-between text-xs text-gray-400">
+                        <span>{task.project}</span>
+                        <span>{task.duration}</span>
+                      </div>
+                      <p className="font-bold">{task.title}</p>
+                      {task.note && (
+                        <p className="text-sm text-gray-600">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" className="inline mr-1" viewBox="0 0 16 16">
+                            <path d="M8 4a.905.905 0 0 0-.9.995l.35 3.507a.552.552 0 0 0 1.1 0l.35-3.507A.905.905 0 0 0 8 4zm.002 6a1 1 0 1 0 0 2 1 1 0 0 0 0-2z" />
+                          </svg>{task.note}
+                        </p>
+                      )}
+                      <button 
+                        onClick={() => markTaskAsDone(task.id)} 
+                        className="mt-2 px-3 py-2 bg-white rounded shadow hover:text-green-600 text-sm border border-gray-300"
+                      >
+                        Marquer comme terminé
+                      </button>
+                    </div>
+                  ))
+              ) : (
+                <p className="text-sm text-gray-500">Aucune tâche pour aujourd’hui.</p>
+              )}
             </div>
           </div>
         </div>

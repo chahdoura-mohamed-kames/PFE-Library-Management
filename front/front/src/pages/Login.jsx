@@ -20,13 +20,17 @@ export default function Login() {
         password
       });
 
-      localStorage.setItem('token', res.data.token);
-      localStorage.setItem('user', JSON.stringify(res.data.user));
+      // ✅ Stockage complet (user + token)
+      localStorage.setItem('user', JSON.stringify({
+        ...res.data.user,
+        token: res.data.token
+      }));
 
       alert('✅ Connexion réussie !');
       navigate(from, { replace: true });
+
     } catch (error) {
-      console.error(error.response?.data?.error);
+      console.error("Erreur connexion:", error.response?.data?.error);
       setErrorMessage("❌ Email ou mot de passe invalide.");
     }
   };

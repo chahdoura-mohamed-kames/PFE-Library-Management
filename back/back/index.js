@@ -13,9 +13,9 @@ const SECRET_KEY = "yourSecretKey"; // ⚠️ Change in production
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use("/uploads", express.static(path.join(__dirname, "uploads"))); // 🔁 Serveur statique
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Multer config pour l'upload
+// Multer config
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "uploads/"),
   filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
@@ -36,7 +36,7 @@ pool
   .then(() => console.log("✅ Connected to PostgreSQL"))
   .catch((err) => console.error("❌ PostgreSQL connection error:", err));
 
-// Middleware JWT
+// JWT Middleware
 const authenticateToken = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.sendStatus(401);
@@ -100,7 +100,7 @@ app.post("/auth/login", async (req, res) => {
   }
 });
 
-// Profil
+// Profile
 app.get("/profile", authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
@@ -113,7 +113,7 @@ app.get("/profile", authenticateToken, async (req, res) => {
   }
 });
 
-// Dashboard
+// Dashboard 📊
 app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -128,8 +128,10 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
     );
 
     const tasksToday = await pool.query(
-      `SELECT title, project, duration, deadline, note
-       FROM tasks WHERE user_id = $1
+      `SELECT id, title, project, duration, deadline, note, done
+       FROM tasks 
+       WHERE user_id = $1 
+       AND done = false  -- 🛠 Ajouté : seulement les tâches non terminées
        ORDER BY id DESC LIMIT 10`,
       [userId]
     );
@@ -148,7 +150,7 @@ app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
   }
 });
 
-// 📚 Upload Book
+// Upload Book
 app.post(
   "/upload-book",
   upload.fields([
@@ -180,7 +182,33 @@ app.post(
   }
 );
 
-//tache utilisateur
+// ✅ Marquer une tâche comme terminée
+app.patch("/api/tasks/:id/complete", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const updateTask = await pool.query(
+      "UPDATE tasks SET done = true WHERE id = $1 RETURNING *",
+      [id]
+    );
+
+    if (updateTask.rowCount === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Tâche non trouvée." });
+    }
+
+    res.json({
+      success: true,
+      message: "Tâche marquée comme terminée.",
+      task: updateTask.rows[0],
+    });
+  } catch (err) {
+    console.error("Erreur lors de la complétion de la tâche :", err);
+    res.status(500).json({ success: false, message: "Erreur serveur." });
+  }
+});
+
+// User tasks
 app.get("/api/user/tasks", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -195,7 +223,7 @@ app.get("/api/user/tasks", authenticateToken, async (req, res) => {
   }
 });
 
-// 📚 Get Books
+// 📚 Books
 app.get("/all-books", async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = 10;
@@ -218,14 +246,100 @@ app.get("/all-books", async (req, res) => {
 });
 
 // 📖 Get Book by ID
-app.get("/book/:id", async (req, res) => {
+app.get("/api/book/:userId", async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM books WHERE id = $1", [
-      req.params.id,
-    ]);
-    res.json(result.rows[0]);
+    const userId = req.params.userId;
+    const page = parseInt(req.query.page) || 1;
+    const limit = 5;
+    const offset = (page - 1) * limit;
+
+    const books = await pool.query(
+      "SELECT * FROM books WHERE user_id = $1  LIMIT $2 OFFSET $3",
+      [userId, limit, offset]
+    );
+
+    const total = await pool.query(
+      "SELECT COUNT(*) FROM books WHERE user_id = $1",
+      [userId]
+    );
+
+    res.json({
+      books: books.rows,
+      total: parseInt(total.rows[0].count),
+      page,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Récupérer tous les posts avec leurs réponses
+app.get("/api/community", async (req, res) => {
+  try {
+    const postsResult = await pool.query(
+      "SELECT * FROM community_posts ORDER BY created_at DESC"
+    );
+    const repliesResult = await pool.query("SELECT * FROM community_replies");
+
+    const postsWithReplies = postsResult.rows.map((post) => ({
+      ...post,
+      replies: repliesResult.rows.filter((reply) => reply.post_id === post.id),
+    }));
+
+    res.json(postsWithReplies);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+// Créer un nouveau post
+app.post("/api/community", async (req, res) => {
+  const { username, message } = req.body;
+  if (!username || !message)
+    return res.status(400).json({ error: "Champs requis" });
+
+  const result = await pool.query(
+    "INSERT INTO community_posts (username, message, created_at) VALUES ($1, $2, NOW()) RETURNING *",
+    [username, message]
+  );
+  res.json(result.rows[0]);
+});
+
+// Ajouter une réponse à un post
+app.post("/api/community/:postId/replies", async (req, res) => {
+  const { postId } = req.params;
+  const { username, message } = req.body;
+  if (!username || !message)
+    return res.status(400).json({ error: "Champs requis" });
+
+  const result = await pool.query(
+    "INSERT INTO community_replies (post_id, username, message, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *",
+    [postId, username, message]
+  );
+  res.json(result.rows[0]);
+});
+
+// ALL BOOKS ADMIN
+app.get("/api/admin/all-booksadmin", async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const booksPerPage = 10;
+  const offset = (page - 1) * booksPerPage;
+
+  try {
+    const totalBooks = await pool.query("SELECT COUNT(*) FROM books");
+    const books = await pool.query(
+      "SELECT * FROM books ORDER BY id DESC LIMIT $1 OFFSET $2",
+      [booksPerPage, offset]
+    );
+
+    res.json({
+      books: books.rows,
+      total: parseInt(totalBooks.rows[0].count),
+      page,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -253,7 +367,7 @@ app.delete("/book/:id", async (req, res) => {
   }
 });
 
-// ✅ Ajouter tâche
+// ✅ Ajouter une tâche
 app.post("/api/tasks", authenticateToken, async (req, res) => {
   const { title, project, duration, note } = req.body;
   const userId = req.user.id;
@@ -279,14 +393,14 @@ app.post("/api/tasks", authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ Admin - Créer un utilisateur avec avatar
+// Admin créer utilisateur
 app.post(
   "/api/admin/create-user",
   upload.single("avatar"),
   async (req, res) => {
     const { name, email, password, role } = req.body;
     const avatar_url = req.file ? `/uploads/${req.file.filename}` : null;
-    const created_by = req.headers["admin-id"]; // 👈 admin connecté
+    const created_by = req.headers["admin-id"];
 
     try {
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -303,46 +417,8 @@ app.post(
     }
   }
 );
-//admin books
-app.get("/api/admin/all-booksadmin", async (req, res) => {
-  const userId = req.headers["user-id"];
-  const page = parseInt(req.query.page) || 1;
-  const limit = 10;
-  const offset = (page - 1) * limit;
 
-  if (!userId) {
-    return res
-      .status(400)
-      .json({ success: false, message: "User ID is required" });
-  }
-
-  try {
-    // Total count
-    const totalResult = await pool.query(
-      "SELECT COUNT(*) FROM books WHERE user_id = $1",
-      [userId]
-    );
-    const total = parseInt(totalResult.rows[0].count);
-
-    // Paginated data
-    const booksResult = await pool.query(
-      "SELECT * FROM books WHERE user_id = $1 ORDER BY id LIMIT $2 OFFSET $3",
-      [userId, limit, offset]
-    );
-
-    res.json({
-      success: true,
-      books: booksResult.rows,
-      total,
-      page,
-    });
-  } catch (error) {
-    console.error("Error fetching books:", error);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
-// ✅ Admin - Voir tous les utilisateurs
+// Admin voir tous les utilisateurs
 app.get("/api/admin/users", async (req, res) => {
   try {
     const result = await pool.query(
@@ -350,55 +426,322 @@ app.get("/api/admin/users", async (req, res) => {
     );
     res.json({ success: true, users: result.rows });
   } catch (err) {
-    console.error("Erreur récupération utilisateurs :", err.message);
-    res.status(500).json({
-      success: false,
-      message: "Erreur serveur",
-      error: err.message,
-    });
+    res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
-//les utilisateurs by id
+//afficher les utilisateurs par admin
 app.get("/api/admin/usersadmin", async (req, res) => {
+  const adminId = req.headers["admin-id"]; // ⚡ On récupère l'id admin du header
+
+  if (!adminId) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Admin ID manquant" });
+  }
+
   try {
-    const adminId = req.headers["admin-id"]; // 🛑 récupérer l'id de l'admin connecté (envoyé depuis le front)
-
-    if (!adminId) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Admin ID manquant" });
-    }
-
-    const result = await pool.query(
-      "SELECT id, name, email, role, avatar_url, created_at FROM users WHERE created_by = $1 ORDER BY id DESC",
+    const users = await pool.query(
+      "SELECT id, name, email, role, avatar_url, created_at FROM users WHERE created_by = $1",
       [adminId]
     );
+    return res.status(200).json({ success: true, users: users.rows });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+//supprimer utilisateur
+app.delete("/api/admin/users/:id", async (req, res) => {
+  const userId = req.params.id;
 
-    res.json({ success: true, users: result.rows });
-  } catch (err) {
-    console.error("Erreur récupération utilisateurs :", err.message);
+  try {
+    const result = await pool.query("DELETE FROM users WHERE id = $1", [
+      userId,
+    ]);
+
+    if (result.rowCount === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Utilisateur non trouvé" });
+    }
+
     res
-      .status(500)
-      .json({ success: false, message: "Erreur serveur", error: err.message });
+      .status(200)
+      .json({ success: true, message: "Utilisateur supprimé avec succès" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
 
-// ❌ Supprimer un utilisateur
-app.delete("/api/admin/users/:id", async (req, res) => {
+//best seller
+app.get("/api/books/best-sellers", async (req, res) => {
   try {
-    await pool.query("DELETE FROM users WHERE id = $1", [req.params.id]);
-    res.json({ success: true, message: "Utilisateur supprimé" });
+    const result = await pool.query(
+      "SELECT * FROM books ORDER BY sales_count DESC LIMIT 8"
+    );
+    res.json({ success: true, books: result.rows });
   } catch (err) {
-    console.error("Erreur suppression utilisateur :", err.message);
-    res.status(500).json({
+    console.error("Erreur dans /api/books/best-sellers :", err.message);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+//orders par utilisateur
+app.get("/my-book-orders", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id; // maintenant injecté par le middleware
+
+    const result = await pool.query(
+      `
+      SELECT o.*, b.title, u.name AS client_name
+      FROM orders o
+      JOIN books b ON o.book_id = b.id
+      JOIN users u ON o.user_id = u.id
+      WHERE o.owner_id = $1
+      ORDER BY o.created_at DESC
+    `,
+      [userId]
+    );
+
+    res.json({ success: true, orders: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+// livree commande
+app.patch("/api/orders/:id/deliver", authenticateToken, async (req, res) => {
+  const orderId = req.params.id;
+
+  try {
+    const result = await pool.query(
+      "UPDATE orders SET status = 'Livrée' WHERE id = $1 RETURNING *",
+      [orderId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Commande non trouvée" });
+    }
+
+    res.json({
+      message: "Commande marquée comme livrée ✅",
+      order: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Erreur :", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+//commender
+
+app.post("/api/orders", async (req, res) => {
+  const { user_id, book_id, quantity } = req.body;
+
+  if (!user_id || !book_id || !quantity) {
+    return res.status(400).json({
       success: false,
-      message: "Erreur suppression",
-      error: err.message,
+      message: "Champs requis : user_id, book_id, quantity.",
     });
   }
+
+  try {
+    // 🔍 Récupérer prix et owner_id du livre
+    const bookRes = await pool.query(
+      `SELECT price, user_id AS owner_id FROM books WHERE id = $1`,
+      [book_id]
+    );
+
+    if (bookRes.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Livre non trouvé." });
+    }
+
+    const { price, owner_id } = bookRes.rows[0];
+    const total_amount = price * quantity;
+
+    // 🛒 Insérer la commande
+    const result = await pool.query(
+      `INSERT INTO orders (user_id, book_id, owner_id, quantity, total_amount, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'pending', NOW()) RETURNING *`,
+      [user_id, book_id, owner_id, quantity, total_amount]
+    );
+
+    // Mettre à jour le sales_count du livre
+    await pool.query(
+      "UPDATE books SET sales_count = sales_count + $1 WHERE id = $2",
+      [quantity, book_id]
+    );
+
+    // ✅ Réponse
+    res.status(201).json({
+      success: true,
+      message: "Commande enregistrée avec succès ✅",
+      order: result.rows[0],
+    });
+  } catch (error) {
+    console.error("❌ Erreur commande:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur." });
+  }
 });
 
-// 🚀 Lancer le serveur
+// Ajouter un post
+app.post("/api/community/posts", async (req, res) => {
+  const { username, message } = req.body;
+  try {
+    const result = await pool.query(
+      "INSERT INTO community_posts (username, message) VALUES ($1, $2) RETURNING *",
+      [username, message]
+    );
+    res.status(201).json({ success: true, post: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Ajouter une réponse à un post
+app.post("/api/community/replies", async (req, res) => {
+  const { postId, username, message } = req.body;
+  try {
+    const result = await pool.query(
+      "INSERT INTO community_replies (post_id, username, message) VALUES ($1, $2, $3) RETURNING *",
+      [postId, username, message]
+    );
+    res.status(201).json({ success: true, reply: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Récupérer tous les posts avec leurs réponses
+app.get("/api/community/posts", async (req, res) => {
+  try {
+    const postsResult = await pool.query(
+      "SELECT * FROM community_posts ORDER BY created_at DESC"
+    );
+    const repliesResult = await pool.query(
+      "SELECT * FROM community_replies ORDER BY created_at ASC"
+    );
+
+    // Organiser les réponses par post_id
+    const posts = postsResult.rows.map((post) => ({
+      ...post,
+      replies: repliesResult.rows.filter((reply) => reply.post_id === post.id),
+    }));
+
+    res.json({ success: true, posts });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET avis + moyenne
+app.get("/api/reviews/:bookId", async (req, res) => {
+  const { bookId } = req.params;
+  try {
+    const reviews = await pool.query(
+      `
+      SELECT r.rating, r.comment, r.created_at, u.name
+      FROM reviews r
+      JOIN users u ON u.id = r.user_id
+      WHERE r.book_id = $1
+      ORDER BY r.created_at DESC
+    `,
+      [bookId]
+    );
+
+    const avg = await pool.query(
+      `
+      SELECT ROUND(AVG(rating)::numeric, 1) as average
+      FROM reviews
+      WHERE book_id = $1
+    `,
+      [bookId]
+    );
+
+    res.json({ reviews: reviews.rows, average: avg.rows[0].average || 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Erreur serveur");
+  }
+});
+
+// POST avis
+app.post("/api/reviews/:bookId", authenticateToken, async (req, res) => {
+  const { bookId } = req.params;
+  const { rating, comment } = req.body;
+  const userId = req.user.id;
+  try {
+    await pool.query(
+      `INSERT INTO reviews (user_id, book_id, rating, comment)
+       VALUES ($1, $2, $3, $4)`,
+      [userId, bookId, rating, comment]
+    );
+    res.json({ message: "Avis ajouté" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Erreur serveur");
+  }
+});
+
+// PUT edit post
+app.put("/api/community/:id", async (req, res) => {
+  const { message } = req.body;
+  const postId = req.params.id;
+  const result = await pool.query(
+    `UPDATE community_posts SET message = $1 WHERE id = $2 RETURNING *`,
+    [message, postId]
+  );
+  res.json(result.rows[0]);
+});
+
+// POST like (1 fois par user)
+app.post("/api/community/:id/like", async (req, res) => {
+  const postId = req.params.id;
+  const { username } = req.body;
+  const exists = await pool.query(
+    `SELECT * FROM community_votes WHERE post_id = $1 AND username = $2`,
+    [postId, username]
+  );
+  if (exists.rows.length > 0)
+    return res.status(400).json({ error: "Déjà voté." });
+
+  await pool.query(
+    `INSERT INTO community_votes (post_id, username, vote_type) VALUES ($1, $2, 'like')`,
+    [postId, username]
+  );
+  const result = await pool.query(
+    `UPDATE community_posts SET likes = likes + 1 WHERE id = $1 RETURNING *`,
+    [postId]
+  );
+  res.json(result.rows[0]);
+});
+
+// POST dislike
+app.post("/api/community/:id/dislike", async (req, res) => {
+  const postId = req.params.id;
+  const { username } = req.body;
+  const exists = await pool.query(
+    `SELECT * FROM community_votes WHERE post_id = $1 AND username = $2`,
+    [postId, username]
+  );
+  if (exists.rows.length > 0)
+    return res.status(400).json({ error: "Déjà voté." });
+
+  await pool.query(
+    `INSERT INTO community_votes (post_id, username, vote_type) VALUES ($1, $2, 'dislike')`,
+    [postId, username]
+  );
+  const result = await pool.query(
+    `UPDATE community_posts SET dislikes = dislikes + 1 WHERE id = $1 RETURNING *`,
+    [postId]
+  );
+  res.json(result.rows[0]);
+});
+
+// 🚀 Lancer serveur
 app.listen(port, () => {
   console.log(`🚀 Server running at http://localhost:${port}`);
 });

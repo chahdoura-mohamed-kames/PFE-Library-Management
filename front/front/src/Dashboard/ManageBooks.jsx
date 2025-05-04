@@ -12,8 +12,8 @@ const ManageBooks = () => {
   const fetchBooks = (page = 1) => {
     const user = JSON.parse(localStorage.getItem("user"));
     if (!user) return;
-
-    fetch(`http://localhost:5000/api/admin/all-booksadmin?page=${page}`, {
+  
+    fetch(`http://localhost:5000/api/book/${user.id}?page=${page}`, {
       headers: {
         "user-id": user.id
       }
@@ -25,13 +25,14 @@ const ManageBooks = () => {
         setCurrentPage(data.page);
       });
   };
+  
 
   useEffect(() => {
     fetchBooks(currentPage);
   }, [currentPage]);
 
   const handleDelete = (id) => {
-    fetch(`http://localhost:5000/book/${id}`, {
+    fetch(`http://localhost:5000/api/book/${bookId}?page=1`, {
       method: "DELETE",
     })
       .then((res) => res.json())

@@ -24,12 +24,14 @@ const AddTask = () => {
       duration,
       note,
     };
+    const user = JSON.parse(localStorage.getItem("user"));
+    const token = user?.token;
 
     fetch('http://localhost:5000/api/tasks', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(taskObj),
     })

@@ -16,6 +16,7 @@ import About from "../pages/about/About";
 import Blog from "../pages/blog/Blog"
 import ManageUsers from "../Dashboard/ManageUsers"; 
 import ManageTasks from '../Dashboard/ManageTasks';
+import Orders from '../Dashboard/Orders';
 
 const router = createBrowserRouter([
   {
@@ -49,6 +50,7 @@ const router = createBrowserRouter([
       
       { path: "/admin/dashboard/manage-users", element: <ManageUsers /> }, 
       { path: "/admin/dashboard/manage-tasks", element: <ManageTasks /> },
+      { path: "/admin/dashboard/Orders", element: <Orders /> }
     ]
   },
   { path: "/login", element: <Login /> },

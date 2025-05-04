@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { Table } from "flowbite-react";
-import AddTask from "./AddTask"; //
+import AddTask from "./AddTask";
 
 const ManageTasks = () => {
   const [tasks, setTasks] = useState([]);
 
   const fetchTasks = async () => {
-    const token = localStorage.getItem("token");
+    const user = JSON.parse(localStorage.getItem("user")); // ✅ Corrigé
+    const token = user?.token; // ✅ Corrigé
+
     const res = await fetch("http://localhost:5000/api/user/tasks", {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -24,13 +26,11 @@ const ManageTasks = () => {
     <div className="p-4">
       <h2 className="text-2xl font-bold mb-4">Gestion des Tâches</h2>
 
-      {/* 👉 Ajouter une tâche */}
       <div className="mb-10 border p-4 rounded-xl bg-white">
         <h3 className="text-xl font-semibold mb-4">Ajouter une nouvelle tâche</h3>
-        <AddTask onTaskAdded={fetchTasks} /> {/* 🔁 Passe la fonction pour recharger après ajout */}
+        <AddTask onTaskAdded={fetchTasks} />
       </div>
 
-      {/* 👉 Liste des tâches */}
       <div className="overflow-x-auto">
         <Table>
           <Table.Head>

@@ -50,8 +50,8 @@ const SideBar = () => {
             <Sidebar.Item href="/admin/dashboard/manage-users" icon={HiUser}>
               Users
             </Sidebar.Item>
-            <Sidebar.Item href="#" icon={HiShoppingBag}>
-              Products
+            <Sidebar.Item href="/admin/dashboard/Orders" icon={HiShoppingBag}>
+              Orders
             </Sidebar.Item>
             <Sidebar.Item href="/login" icon={HiArrowSmRight}>
               Sign In
@@ -61,12 +61,6 @@ const SideBar = () => {
             </Sidebar.Item>
           </Sidebar.ItemGroup>
           <Sidebar.ItemGroup>
-            <Sidebar.Item href="#" icon={HiChartPie}>
-              Upgrade to Pro
-            </Sidebar.Item>
-            <Sidebar.Item href="#" icon={HiViewBoards}>
-              Documentation
-            </Sidebar.Item>
             <Sidebar.Item href="#" icon={HiSupport}>
               Help
             </Sidebar.Item>
